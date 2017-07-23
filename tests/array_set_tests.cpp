@@ -8,6 +8,9 @@
 #include "utils.h"
 
 
+BOOST_AUTO_TEST_SUITE(test_array_set)
+
+
 using test_types = boost::mpl::list<
                         tsl::array_set<char>,
                         tsl::array_set<wchar_t>,
@@ -17,7 +20,7 @@ using test_types = boost::mpl::list<
                         tsl::array_set<wchar_t, tsl::str_hash_ah<wchar_t>, tsl::str_equal_ah<wchar_t>, false>,
                         tsl::array_set<char16_t, tsl::str_hash_ah<char16_t>, tsl::str_equal_ah<char16_t>, false>,
                         tsl::array_set<char32_t, tsl::str_hash_ah<char32_t>, tsl::str_equal_ah<char32_t>, false>
-                        >;
+                    >;
 
 
 /**
@@ -58,3 +61,5 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(test_insert, ASet, test_types) {
         BOOST_CHECK(map.key_eq()(it.key(), it.key_size(), key.c_str(), key.size()));
     }
 }
+
+BOOST_AUTO_TEST_SUITE_END()

@@ -39,7 +39,10 @@ namespace tsl {
 /**
  * Implementation of a cache-conscious string hash map.
  * 
- * The map stores the strings as `const CharT*`.
+ * The map stores the strings as `const CharT*`. If StoreNullTerminator is true,
+ * the strings are stored with the a null-terminator (the key() method of the iterators
+ * will return a pointer to this null-terminated string). Otherwise the null character
+ * is not stored (which allow an economy of 1 byte per string).
  * 
  * The value T must be either nothrow move-constructible, copy-constuctible or both.
  * 

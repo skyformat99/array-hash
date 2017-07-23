@@ -12,6 +12,7 @@
 #include "array_map.h"
 #include "utils.h"
 
+BOOST_AUTO_TEST_SUITE(test_array_map)
 
 using test_types = boost::mpl::list<
                 tsl::array_map<char, int64_t>,
@@ -445,3 +446,5 @@ BOOST_AUTO_TEST_CASE(test_empty_map) {
     
     BOOST_CHECK_EQUAL(map["new value"], int{});
 }
+
+BOOST_AUTO_TEST_SUITE_END()

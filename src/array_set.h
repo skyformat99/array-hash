@@ -38,7 +38,10 @@ namespace tsl {
 /**
  * Implementation of a cache-conscious string hash set.
  * 
- * The set stores the strings as `const CharT*`.
+ * The set stores the strings as `const CharT*`. If StoreNullTerminator is true,
+ * the strings are stored with the a null-terminator (the key() method of the iterators
+ * will return a pointer to this null-terminated string). Otherwise the null character
+ * is not stored (which allow an economy of 1 byte per string).
  * 
  * The size of a key string is limited to std::numeric_limits<KeySizeT>::max() - 1. 
  * That is 65 535 characters by default, but can be raised with the KeySizeT template parameter. 
