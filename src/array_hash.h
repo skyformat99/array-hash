@@ -405,7 +405,7 @@ public:
         
         
         template<class U = T, typename std::enable_if<has_value<U>::value && !is_const>::type* = nullptr>
-        void set_value(U value) {
+        void set_value(U value) noexcept {
             std::memcpy(m_position + size_as_char_t<key_size_type>() + key_size() + KEY_EXTRA_SIZE, 
                         &value, sizeof(value));
         }
@@ -659,6 +659,10 @@ public:
     void clear() noexcept {
         std::free(m_buffer);
         m_buffer = nullptr;
+    }
+    
+    iterator mutable_iterator(const_iterator pos) {
+        return iterator(m_buffer + (pos.m_position - m_buffer)); 
     }
     
 private:
@@ -961,7 +965,7 @@ public:
         
     private:
         template<class U = T, typename std::enable_if<has_value<U>::value>::type* = nullptr>
-        array_bucket_value_type value_position() const {
+        IndexSizeT value_position() const {
             return this->m_array_bucket_iterator.value();
         }
         
@@ -978,10 +982,12 @@ public:
     array_hash(size_type bucket_count, 
                const Hash& hash,
                float max_load_factor): Hash(hash), GrowthPolicy((bucket_count == 0)?++bucket_count:bucket_count), 
-                                       m_buckets(0), m_nb_elements(0), m_max_load_factor(max_load_factor) 
+                                       m_buckets(0), m_nb_elements(0) 
     {
         tsl_assert(bucket_count > 0);
         m_buckets.resize(bucket_count);
+        
+        this->max_load_factor(max_load_factor);
     }
     
     array_hash(const array_hash& other) = default;
@@ -995,7 +1001,8 @@ public:
                                     GrowthPolicy(std::move(other)),
                                     m_buckets(std::move(other.m_buckets)),
                                     m_nb_elements(other.m_nb_elements),
-                                    m_max_load_factor(other.m_max_load_factor)
+                                    m_max_load_factor(other.m_max_load_factor),
+                                    m_load_threshold(other.m_load_threshold)
     {
         other.clear();
     }
@@ -1096,17 +1103,21 @@ public:
     }
     
     template<class... ValueArgs>
-    std::pair<iterator, bool> insert(const CharT* key, size_type key_size, ValueArgs&&... value_args) {
-        rehash_if_needed();
+    std::pair<iterator, bool> emplace(const CharT* key, size_type key_size, ValueArgs&&... value_args) {
+        const std::size_t hash = hash_key(key, key_size);
+        std::size_t ibucket = bucket_for_hash(hash);
         
-        const std::size_t ibucket = bucket_for_hash(hash_key(key, key_size));
         auto it_find = m_buckets[ibucket].find_or_end_of_bucket(key, key_size);
         if(it_find.second) {
             return std::make_pair(iterator(m_buckets.begin() + ibucket, it_find.first, this), false);
         }
-        else {
-            return insert_at_position(ibucket, it_find.first, key, key_size, std::forward<ValueArgs>(value_args)...);
+        
+        if(grow_on_high_load()) {
+            ibucket = bucket_for_hash(hash);
+            it_find = m_buckets[ibucket].find_or_end_of_bucket(key, key_size);
         }
+        
+        return emplace_impl(ibucket, it_find.first, key, key_size, std::forward<ValueArgs>(value_args)...);
     }
     
     iterator erase(const_iterator pos) {
@@ -1156,8 +1167,9 @@ public:
         swap(static_cast<Hash&>(*this), static_cast<Hash&>(other));
         swap(static_cast<GrowthPolicy&>(*this), static_cast<GrowthPolicy&>(other));
         swap(m_buckets, other.m_buckets);
-        swap(m_nb_elements, other.m_nb_elements);;
+        swap(m_nb_elements, other.m_nb_elements);
         swap(m_max_load_factor, other.m_max_load_factor);
+        swap(m_load_threshold, other.m_load_threshold);
     }
     
     /*
@@ -1182,15 +1194,20 @@ public:
     
     template<class U = T, typename std::enable_if<has_value<U>::value>::type* = nullptr>
     U& access_operator(const CharT* key, size_type key_size) {
-        rehash_if_needed();
+        const std::size_t hash = hash_key(key, key_size);
+        std::size_t ibucket = bucket_for_hash(hash);
         
-        const std::size_t ibucket = bucket_for_hash(hash_key(key, key_size));
         auto it_find = m_buckets[ibucket].find_or_end_of_bucket(key, key_size);
         if(it_find.second) {
             return this->m_values[it_find.first.value()];
         }
         else {
-            return insert_at_position(ibucket, it_find.first, key, key_size, U{}).first.value();
+            if(grow_on_high_load()) {
+                ibucket = bucket_for_hash(hash);
+                it_find = m_buckets[ibucket].find_or_end_of_bucket(key, key_size);
+            }
+            
+            return emplace_impl(ibucket, it_find.first, key, key_size, U{}).first.value();
         }
     }
     
@@ -1245,7 +1262,7 @@ public:
     }
     
     size_type max_bucket_count() const { 
-        return m_buckets.max_size();
+        return std::min(GrowthPolicy::max_bucket_count(), m_buckets.max_size());
     }
     
     
@@ -1262,6 +1279,7 @@ public:
     
     void max_load_factor(float ml) {
         m_max_load_factor = ml;
+        m_load_threshold = size_type(float(bucket_count())*m_max_load_factor);
     }
     
     void rehash(size_type count) {
@@ -1324,28 +1342,6 @@ private:
     }
     
     
-    /**
-     * Replace the value of the bucket which has old_index as value to new_index.
-     */
-    template<class U = T, typename std::enable_if<has_value<U>::value>::type* = nullptr>
-    void update_index_in_buckets(std::size_t old_index, std::size_t new_index) {
-        if(old_index == new_index) {
-            return;
-        }
-        
-        for(array_bucket& bucket: m_buckets) {
-            for(auto it_bucket = bucket.begin(); it_bucket != bucket.end(); ++it_bucket) {
-                if(it_bucket.value() == old_index) {
-                    it_bucket.set_value(static_cast<array_bucket_value_type>(new_index));
-                    return;
-                }
-            }
-        }
-        
-    }
-    
-    
-    
     template<class U = T, typename std::enable_if<!has_value<U>::value>::type* = nullptr>
     bool shoud_clear_old_erased_values(float /*threshold*/ = DEFAULT_CLEAR_OLD_ERASED_VALUE_THRESHOLD) const {
         return false;
@@ -1353,8 +1349,11 @@ private:
     
     template<class U = T, typename std::enable_if<has_value<U>::value>::type* = nullptr>
     bool shoud_clear_old_erased_values(float threshold = DEFAULT_CLEAR_OLD_ERASED_VALUE_THRESHOLD) const {
-        return m_nb_elements >= DEFAULT_INIT_BUCKET_COUNT && 
-               float(m_nb_elements)/float(this->m_values.size()) < threshold;
+        if(this->m_values.size() == 0) {
+            return false;
+        }
+        
+        return float(m_nb_elements)/float(this->m_values.size()) < threshold;
     }
     
     template<class U = T, typename std::enable_if<!has_value<U>::value>::type* = nullptr>
@@ -1363,6 +1362,14 @@ private:
     
     template<class U = T, typename std::enable_if<has_value<U>::value>::type* = nullptr>
     void clear_old_erased_values() {
+        static_assert(std::is_nothrow_move_constructible<U>::value || 
+                      std::is_copy_constructible<U>::value, 
+                      "mapped value must be either copy constructible or nothrow move constructible.");
+
+        if(m_nb_elements == this->m_values.size()) {
+            return;
+        }
+        
         std::vector<T> new_values;
         new_values.reserve(size());
         
@@ -1371,53 +1378,47 @@ private:
         }
         
         
-        array_bucket_value_type ivalue = 0;
-        for(array_bucket& bucket: m_buckets) {
-            for(auto it_bucket = bucket.begin(); it_bucket != bucket.end(); ++it_bucket) {
-                it_bucket.set_value(ivalue);
-                ivalue++;
-            }
+        IndexSizeT ivalue = 0;
+        for(auto it = begin(); it != end(); ++it) {
+            auto it_array_bucket = it.m_buckets_iterator->mutable_iterator(it.m_array_bucket_iterator);
+            it_array_bucket.set_value(ivalue);
+            ivalue++;
         }
         
         new_values.swap(this->m_values);
         tsl_assert(m_nb_elements == this->m_values.size());
     }
     
-    
-    
-    void rehash_if_needed() {
-        if(load_factor() > m_max_load_factor) {
+    bool grow_on_high_load() {
+        if(size() >= m_load_threshold) {
             rehash_impl(GrowthPolicy::next_bucket_count());
+            return true;
         }
+        
+        return false;
     }
     
     template<class... ValueArgs, class U = T, typename std::enable_if<has_value<U>::value>::type* = nullptr>
-    std::pair<iterator, bool> insert_at_position(std::size_t ibucket, typename array_bucket::const_iterator it_pos, 
-                                                 const CharT* key, size_type key_size, ValueArgs&&... value_args) 
+    std::pair<iterator, bool> emplace_impl(std::size_t ibucket, typename array_bucket::const_iterator end_of_bucket, 
+                                          const CharT* key, size_type key_size, ValueArgs&&... value_args) 
     {
-        /*
-         * Check that array_bucket_value_type and m_nb_elements don't overflow.
-         * If they do, there are too much elements in the map to add a new one.
-         * 
-         * We can't just check m_nb_elements as they may be some elements which were
-         * deleted from the map but still present in m_values (see quick_erase).
-         */
-        static_assert(std::is_unsigned<array_bucket_value_type>::value, "");
-        if(this->m_values.size() > static_cast<std::size_t>(std::numeric_limits<array_bucket_value_type>::max()-1)) {
-            throw std::length_error("Can't insert value, too much values in the map.");
+        if(this->m_values.size() >= max_size()) {
+            // Try to clear old erased values lingering in m_values. Throw if it doesn't change anything.
+            clear_old_erased_values();
+            if(this->m_values.size() >= max_size()) {
+                throw std::length_error("Can't insert value, too much values in the map.");
+            }
         }
-        static_assert(std::is_same<decltype(m_nb_elements), array_bucket_value_type>::value, "");
-        const array_bucket_value_type index_in_values = static_cast<array_bucket_value_type>(this->m_values.size());
         
         if(this->m_values.size() == this->m_values.capacity()) {
             this->m_values.reserve(std::size_t(float(this->m_values.size()) * value_container<T>::VECTOR_GROWTH_RATE));
         }
         
         
-         this->m_values.emplace_back(std::forward<ValueArgs>(value_args)...);
+        this->m_values.emplace_back(std::forward<ValueArgs>(value_args)...);
         
         try {
-            auto it = m_buckets[ibucket].append(it_pos, key, key_size, index_in_values);
+            auto it = m_buckets[ibucket].append(end_of_bucket, key, key_size, IndexSizeT(this->m_values.size()-1));
             m_nb_elements++;
             
             return std::make_pair(iterator(m_buckets.begin() + ibucket, it, this), true);
@@ -1429,14 +1430,14 @@ private:
     }
     
     template<class U = T, typename std::enable_if<!has_value<U>::value>::type* = nullptr>
-    std::pair<iterator, bool> insert_at_position(std::size_t ibucket, typename array_bucket::const_iterator it_pos, 
-                                                 const CharT* key, size_type key_size) 
+    std::pair<iterator, bool> emplace_impl(std::size_t ibucket, typename array_bucket::const_iterator end_of_bucket, 
+                                          const CharT* key, size_type key_size) 
     {
-        if(m_nb_elements == max_size()) {
+        if(m_nb_elements >= max_size()) {
             throw std::length_error("Can't insert value, too much values in the map.");
         }
         
-        auto it = m_buckets[ibucket].append(it_pos, key, key_size);
+        auto it = m_buckets[ibucket].append(end_of_bucket, key, key_size);
         m_nb_elements++;
         
         return std::make_pair(iterator(m_buckets.begin() + ibucket, it, this), true);
@@ -1444,7 +1445,6 @@ private:
     
     void rehash_impl(size_type bucket_count) {
         GrowthPolicy new_growth_policy(bucket_count);
-        
         if(bucket_count == this->bucket_count()) {
             return;
         }
@@ -1457,6 +1457,7 @@ private:
         for(auto it = begin(); it != end(); ++it) {
             const std::size_t hash = hash_key(it.key(), it.key_size());
             const std::size_t ibucket = new_growth_policy.bucket_for_hash(hash);
+            
             bucket_for_ivalue[ivalue] = ibucket;
             required_size_for_bucket[ibucket] += array_bucket::entry_required_bytes(it.key_size());
             ivalue++;
@@ -1482,9 +1483,13 @@ private:
         }
         
         
-        static_assert(noexcept(std::swap(static_cast<GrowthPolicy&>(*this), new_growth_policy)), "");
-        std::swap(static_cast<GrowthPolicy&>(*this), new_growth_policy);
+        using std::swap;
+        swap(static_cast<GrowthPolicy&>(*this), new_growth_policy);
+        
         m_buckets.swap(new_buckets);
+        
+        // Call max_load_factor to change m_load_threshold
+        max_load_factor(m_max_load_factor);
         
         try {
             if(shoud_clear_old_erased_values(0.9f)) {
@@ -1492,10 +1497,7 @@ private:
             }
         }
         catch(...) {
-            // Rollback
-            std::swap(static_cast<GrowthPolicy&>(*this), new_growth_policy);
-            m_buckets.swap(new_buckets);
-            
+            // Not catastrophic if we can't clear old erased values, continue
             throw;
         }
     }
@@ -1522,6 +1524,7 @@ private:
     
     IndexSizeT m_nb_elements;
     float m_max_load_factor;
+    size_type m_load_threshold;
 };
 
 } // end namespace detail_array_hash

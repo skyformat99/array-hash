@@ -161,19 +161,19 @@ public:
     
 #ifdef TSL_HAS_STRING_VIEW
     std::pair<iterator, bool> insert(const std::basic_string_view<CharT>& key) {
-        return m_ht.insert(key.data(), key.size()); 
+        return m_ht.emplace(key.data(), key.size()); 
     }
 #else
     std::pair<iterator, bool> insert(const CharT* key) {
-        return m_ht.insert(key, std::strlen(key));
+        return m_ht.emplace(key, std::strlen(key));
     }
     
     std::pair<iterator, bool> insert(const std::basic_string<CharT>& key) {
-        return m_ht.insert(key.data(), key.size()); 
+        return m_ht.emplace(key.data(), key.size()); 
     }
 #endif
     std::pair<iterator, bool> insert_ks(const CharT* key, size_type key_size) {
-        return m_ht.insert(key, key_size);
+        return m_ht.emplace(key, key_size);
     }
     
     
@@ -205,19 +205,19 @@ public:
     
 #ifdef TSL_HAS_STRING_VIEW
     std::pair<iterator, bool> emplace(const std::basic_string_view<CharT>& key) {
-        return m_ht.insert(key.data(), key.size());
+        return m_ht.emplace(key.data(), key.size());
     }
 #else
     std::pair<iterator, bool> emplace(const CharT* key) {
-        return m_ht.insert(key, std::strlen(key));
+        return m_ht.emplace(key, std::strlen(key));
     }
     
     std::pair<iterator, bool> emplace(const std::basic_string<CharT>& key) {
-        return m_ht.insert(key.data(), key.size());
+        return m_ht.emplace(key.data(), key.size());
     }
 #endif
     std::pair<iterator, bool> emplace_ks(const CharT* key, size_type key_size) {
-        return m_ht.insert(key, key_size);
+        return m_ht.emplace(key, key_size);
     } 
     
     

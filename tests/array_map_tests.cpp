@@ -84,20 +84,6 @@ BOOST_AUTO_TEST_CASE(test_insert_more_than_max_size) {
                       std::length_error);
 }
 
-BOOST_AUTO_TEST_CASE(test_insert_more_than_max_size_with_erase) {
-    tsl::array_map<char, int64_t, tsl::str_hash_ah<char>, tsl::str_equal_ah<char>, true, 
-                   std::uint16_t, std::uint8_t> map;
-    for(std::size_t i=0; i < map.max_size(); i++) {
-        map.insert(utils::get_key<char>(i), utils::get_value<int64_t>(i));
-    }
-    map.erase(utils::get_key<char>(0));
-    
-    BOOST_CHECK_EQUAL(map.size(), map.max_size()-1);
-    BOOST_CHECK_THROW(map.insert(utils::get_key<char>(map.max_size()), 
-                                 utils::get_value<int64_t>(map.max_size())), 
-                      std::length_error);
-}
-
 BOOST_AUTO_TEST_CASE(test_insert_with_too_long_string) {
     tsl::array_map<char, int64_t, tsl::str_hash_ah<char>, tsl::str_equal_ah<char>, true,
                    std::uint8_t, std::uint16_t> map;
@@ -373,7 +359,6 @@ BOOST_AUTO_TEST_CASE(test_equal_range) {
  * operator[]
  */
 BOOST_AUTO_TEST_CASE(test_access_operator) {
-    // insert x values, use at for known and unknown values.
     tsl::array_map<char, int64_t> map = {{"test1", 10}, {"test2", 20}};
     
     BOOST_CHECK_EQUAL(map["test1"], 10);
@@ -381,6 +366,22 @@ BOOST_AUTO_TEST_CASE(test_access_operator) {
     BOOST_CHECK_EQUAL(map["test3"], int64_t());
     
     BOOST_CHECK_EQUAL(map.size(), 3);
+}
+
+BOOST_AUTO_TEST_CASE(test_access_operator_2) {
+    // insert x values, use at for known and unknown values.
+    tsl::array_map<char, int64_t> map;
+    
+    std::size_t nb_values = 200;
+    for(std::size_t i = 0; i < nb_values; i++) {
+        map[utils::get_key<char>(i)] = int64_t(i);
+    }
+    
+    for(std::size_t i = 0; i < nb_values; i++) {
+        BOOST_CHECK_EQUAL(map[utils::get_key<char>(i)], int64_t(i));
+    }
+    
+    BOOST_CHECK_EQUAL(map.size(), nb_values);
 }
 
 /**
