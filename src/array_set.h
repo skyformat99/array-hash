@@ -188,7 +188,7 @@ public:
                            typename std::iterator_traits<InputIt>::iterator_category>::value) 
         {
             const auto nb_elements_insert = std::distance(first, last);
-            const std::size_t nb_free_buckets = size_type(float(bucket_count())*max_load_factor()) - size();
+            const std::size_t nb_free_buckets = std::size_t(float(bucket_count())*max_load_factor()) - size();
             
             if(nb_elements_insert > 0 && nb_free_buckets < std::size_t(nb_elements_insert)) {
                 reserve(size() + std::size_t(nb_elements_insert));

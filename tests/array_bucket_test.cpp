@@ -13,7 +13,7 @@ using test_types =
         tsl::detail_array_hash::array_bucket<wchar_t, std::uint32_t, tsl::str_equal_ah<wchar_t>, std::uint8_t, true>,
         tsl::detail_array_hash::array_bucket<char16_t, std::uint32_t, tsl::str_equal_ah<char16_t>, std::uint8_t, true>,
         tsl::detail_array_hash::array_bucket<char32_t, std::uint8_t, tsl::str_equal_ah<char32_t>, std::uint32_t, true>,
-        tsl::detail_array_hash::array_bucket<char16_t, std::uint16_t, tsl::str_equal_ah<char16_t>, std::uint64_t, false>
+        tsl::detail_array_hash::array_bucket<char16_t, std::uint16_t, tsl::str_equal_ah<char16_t>, std::uint32_t, false>
     >;
 
 

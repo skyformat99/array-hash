@@ -304,7 +304,7 @@ public:
     using iterator = array_bucket_iterator<false>;
     using const_iterator = array_bucket_iterator<true>;
     
-    static_assert(sizeof(KeySizeT) <= sizeof(size_type), "");
+    static_assert(sizeof(KeySizeT) <= sizeof(size_type), "sizeof(KeySizeT) should be <= sizeof(std::size_t;)");
     static_assert(std::is_unsigned<size_type>::value, "");
     
 private:
@@ -477,7 +477,7 @@ public:
         other.m_buffer = nullptr;
     }
     
-    array_bucket& operator=(array_bucket other) {
+    array_bucket& operator=(array_bucket other) noexcept {
         other.swap(*this);
         
         return *this;
@@ -764,7 +764,7 @@ public:
 protected:
     static constexpr float VECTOR_GROWTH_RATE = 1.5f;
     
-    // TODO use a sparse array? Use a dequeu
+    // TODO use a sparse array?
     std::vector<T> m_values;
 };
 
