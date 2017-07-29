@@ -89,8 +89,8 @@ public:
     
     template<class InputIt>
     array_set(InputIt first, InputIt last,
-             size_type bucket_count = ht::DEFAULT_INIT_BUCKET_COUNT,
-             const Hash& hash = Hash()): array_set(bucket_count, hash)
+              size_type bucket_count = ht::DEFAULT_INIT_BUCKET_COUNT,
+              const Hash& hash = Hash()): array_set(bucket_count, hash)
     {
         insert(first, last);
     }
@@ -117,6 +117,8 @@ public:
 #ifdef TSL_HAS_STRING_VIEW
     array_set& operator=(std::initializer_list<std::basic_string_view<CharT>> ilist) {
         clear();
+        
+        reserve(ilist.size());
         insert(ilist);
         
         return *this;
@@ -124,6 +126,8 @@ public:
 #else
     array_set& operator=(std::initializer_list<const CharT*> ilist) {
         clear();
+        
+        reserve(ilist.size());
         insert(ilist);
         
         return *this;
@@ -180,8 +184,15 @@ public:
     
     template<class InputIt>
     void insert(InputIt first, InputIt last) {
-        if(std::is_base_of<std::forward_iterator_tag, typename std::iterator_traits<InputIt>::iterator_category>::value) {
-            reserve(std::distance(first, last));
+        if(std::is_base_of<std::forward_iterator_tag, 
+                           typename std::iterator_traits<InputIt>::iterator_category>::value) 
+        {
+            const auto nb_elements_insert = std::distance(first, last);
+            const std::size_t nb_free_buckets = size_type(float(bucket_count())*max_load_factor()) - size();
+            
+            if(nb_elements_insert > 0 && nb_free_buckets < std::size_t(nb_elements_insert)) {
+                reserve(size() + std::size_t(nb_elements_insert));
+            }
         }
         
         for(auto it = first; it != last; ++it) {
@@ -199,23 +210,35 @@ public:
     void insert(std::initializer_list<const CharT*> ilist) {
         insert(ilist.begin(), ilist.end());
     }
-#endif
+#endif    
     
     
-    
+
 #ifdef TSL_HAS_STRING_VIEW
+    /**
+     * @copydoc emplace_ks(const CharT* key, size_type key_size)
+     */
     std::pair<iterator, bool> emplace(const std::basic_string_view<CharT>& key) {
         return m_ht.emplace(key.data(), key.size());
     }
 #else
+    /**
+     * @copydoc emplace_ks(const CharT* key, size_type key_size)
+     */
     std::pair<iterator, bool> emplace(const CharT* key) {
         return m_ht.emplace(key, std::strlen(key));
     }
     
+    /**
+     * @copydoc emplace_ks(const CharT* key, size_type key_size)
+     */
     std::pair<iterator, bool> emplace(const std::basic_string<CharT>& key) {
         return m_ht.emplace(key.data(), key.size());
     }
 #endif
+    /**
+     * No difference compared to the insert method. Mainly here for coherence with array_map.
+     */
     std::pair<iterator, bool> emplace_ks(const CharT* key, size_type key_size) {
         return m_ht.emplace(key, key_size);
     } 
